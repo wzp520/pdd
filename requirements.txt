@@ -1,0 +1,15 @@
+# 浏览器自动化（核心）
+playwright>=1.48,<2.0
+
+# DeepSeek 用 OpenAI 兼容 SDK 调用
+openai>=1.50,<2.0
+
+# 本地控制台界面（纯 Python，跨平台，可打包）
+nicegui>=2.0,<3.0
+
+# 配置与数据
+pyyaml>=6.0
+python-dotenv>=1.0
+
+# 问答批量导入（Excel）
+openpyxl>=3.1

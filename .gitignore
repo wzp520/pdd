@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.pyc
+.env
+storage_state.json
+*.log
+dist/
+build/
+*.spec
+.DS_Store
+.idea/
