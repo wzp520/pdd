@@ -44,6 +44,8 @@ POLL_INTERVAL = float(os.getenv("POLL_INTERVAL", "2.0"))
 # 轮询间隔随机范围（秒）：模拟人工节奏，避免固定频率被识别为自动化
 POLL_MIN = float(os.getenv("POLL_MIN", "3"))
 POLL_MAX = float(os.getenv("POLL_MAX", "8"))
+# 人工最近一次回复后，再无人工回复超过这个时长（分钟），AI 才恢复接管该会话
+HUMAN_PAUSE_MINUTES = float(os.getenv("HUMAN_PAUSE_MINUTES", "10"))
 HEADLESS = os.getenv("HEADLESS", "false").lower() in ("1", "true", "yes")
 
 # ===== 飞书通知 =====
@@ -56,7 +58,7 @@ FEISHU_AT_USERS = [u.strip() for u in os.getenv("FEISHU_AT_USERS", "").split(","
 def _reload() -> None:
     """从当前环境变量刷新模块级配置。"""
     global DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
-    global DRY_RUN, POLL_INTERVAL, POLL_MIN, POLL_MAX, HEADLESS
+    global DRY_RUN, POLL_INTERVAL, POLL_MIN, POLL_MAX, HUMAN_PAUSE_MINUTES, HEADLESS
     global FEISHU_ENABLED, FEISHU_WEBHOOK, FEISHU_SECRET, FEISHU_AT_USERS
     DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
     DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
@@ -65,6 +67,7 @@ def _reload() -> None:
     POLL_INTERVAL = float(os.getenv("POLL_INTERVAL", "2.0"))
     POLL_MIN = float(os.getenv("POLL_MIN", "3"))
     POLL_MAX = float(os.getenv("POLL_MAX", "8"))
+    HUMAN_PAUSE_MINUTES = float(os.getenv("HUMAN_PAUSE_MINUTES", "10"))
     HEADLESS = os.getenv("HEADLESS", "false").lower() in ("1", "true", "yes")
     FEISHU_ENABLED = os.getenv("FEISHU_ENABLED", "false").lower() in ("1", "true", "yes")
     FEISHU_WEBHOOK = os.getenv("FEISHU_WEBHOOK", "")

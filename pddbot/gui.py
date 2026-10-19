@@ -14,7 +14,7 @@ from pathlib import Path
 
 from nicegui import ui
 
-from . import config, dashboard, decide, feishu, llm, login, quicklinks
+from . import config, dashboard, decide, feishu, learn, llm, login, quicklinks
 from .bot import Bot
 
 bot = Bot()
@@ -94,6 +94,7 @@ def main_page():
         tab_links = ui.tab("快捷入口", icon="open_in_new")
         tab_qa = ui.tab("问答管理", icon="quiz")
         tab_model = ui.tab("模型配置", icon="smart_toy")
+        tab_settings = ui.tab("运行设置", icon="tune")
         tab_feishu = ui.tab("飞书通知", icon="notifications")
 
     with ui.tab_panels(tabs, value=tab_console).classes("w-full"):
@@ -292,6 +293,37 @@ def main_page():
 
             render_qa()
 
+            ui.separator()
+            with ui.row().classes("items-center gap-2 mt-2"):
+                ui.label("🤖 AI 从人工回复中学到的问答（自动生效，可删除纠错）").classes("font-bold")
+                ui.button(icon="refresh", on_click=lambda: render_learned()).props("flat dense").tooltip("刷新")
+            learned_container = ui.column().classes("w-full gap-1")
+
+            def del_learned(idx: int):
+                items = learn.load_learned()
+                if 0 <= idx < len(items):
+                    del items[idx]
+                    learn.save_learned(items)
+                    render_learned()
+
+            def render_learned():
+                learned_container.clear()
+                items = learn.load_learned()
+                with learned_container:
+                    if not items:
+                        ui.label("还没学到内容。转人工后，人工回复的通用问答会自动沉淀到这里。").classes(
+                            "text-gray-400 q-pa-sm"
+                        )
+                    for idx, it in enumerate(items):
+                        with ui.row().classes("w-full items-center gap-2 border-b"):
+                            ui.label("，".join(it.get("keywords", []))).classes("w-64 truncate")
+                            ui.label(it.get("reply", "")).classes("flex-1 truncate")
+                            ui.button(icon="delete", on_click=lambda i=idx: del_learned(i)).props(
+                                "flat dense color=negative"
+                            ).classes("w-16")
+
+            render_learned()
+
         # ===== 模型配置 =====
         with ui.tab_panel(tab_model):
             ui.label("大模型配置（默认 DeepSeek，兼容 OpenAI 接口的模型都可用）").classes(
@@ -336,6 +368,46 @@ def main_page():
                 with ui.row().classes("gap-2"):
                     ui.button("保存", on_click=save_model, icon="save", color="positive")
                     ui.button("测试连接", on_click=test_model, icon="wifi")
+
+        # ===== 运行设置 =====
+        with ui.tab_panel(tab_settings):
+            ui.label("运行参数（保存后对正在运行的机器人实时生效）").classes("text-sm text-gray-500")
+            with ui.card().classes("w-full max-w-xl gap-2"):
+                with ui.row().classes("gap-3 w-full"):
+                    set_pmin = ui.number(
+                        "轮询最小间隔(秒)", value=config.POLL_MIN, min=1, max=60, format="%.0f"
+                    ).classes("flex-1")
+                    set_pmax = ui.number(
+                        "轮询最大间隔(秒)", value=config.POLL_MAX, min=1, max=120, format="%.0f"
+                    ).classes("flex-1")
+                set_pause = ui.number(
+                    "人工静默多久后恢复AI(分钟)",
+                    value=config.HUMAN_PAUSE_MINUTES,
+                    min=0,
+                    max=180,
+                    format="%.0f",
+                ).classes("w-full")
+                ui.label(
+                    "说明：轮询间隔越大越拟人、越安全；转人工后以人工最近一次回复计时，"
+                    "只要人工还在回复就一直续期，人工静默超过此时长 AI 才恢复接管。"
+                ).classes("text-xs text-gray-400")
+
+                def save_settings():
+                    pmin = int(set_pmin.value or 3)
+                    pmax = int(set_pmax.value or 8)
+                    if pmin > pmax:
+                        ui.notify("最小间隔不能大于最大间隔", type="negative")
+                        return
+                    config.update_env(
+                        {
+                            "POLL_MIN": pmin,
+                            "POLL_MAX": pmax,
+                            "HUMAN_PAUSE_MINUTES": int(set_pause.value or 10),
+                        }
+                    )
+                    ui.notify("运行设置已保存并生效 ✅", type="positive")
+
+                ui.button("保存", on_click=save_settings, icon="save", color="positive")
 
         # ===== 飞书通知 =====
         with ui.tab_panel(tab_feishu):

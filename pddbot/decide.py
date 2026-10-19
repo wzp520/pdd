@@ -12,6 +12,7 @@ import yaml
 from . import config, llm
 
 QA_FILE = config.ROOT / "data" / "qa.yaml"
+LEARNED_QA_FILE = config.ROOT / "data" / "learned_qa.yaml"
 PRODUCTS_FILE = config.ROOT / "data" / "products.yaml"
 
 # 命中即转人工（敏感/高风险问题，不让 AI 乱答）
@@ -84,8 +85,13 @@ def load_products() -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def load_learned_qa() -> list:
+    return _load_yaml(LEARNED_QA_FILE, [])
+
+
 def match_qa(text: str) -> str | None:
-    for item in load_qa():
+    # 先查人工配置的 FAQ，再查从人工回复学到的 FAQ
+    for item in load_qa() + load_learned_qa():
         if any(k in text for k in item.get("keywords", [])):
             return item.get("reply")
     return None

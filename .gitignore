@@ -9,3 +9,5 @@ build/
 *.spec
 .DS_Store
 .idea/
+# AI 运行时学到的问答（每个店铺各自积累，不纳入版本库）
+data/learned_qa.yaml

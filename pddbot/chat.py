@@ -160,6 +160,22 @@ async def get_pending_buyer_message(page: Page) -> dict | None:
     )
 
 
+async def get_last_staff_reply(page: Page) -> str:
+    """返回当前会话最后一条客服消息的文本（人工或 bot 发的）；最后一条是买家则返回空串。"""
+    return await page.evaluate(
+        r"""() => {
+            const rows=[...document.querySelectorAll('.msg-list .onemsg')];
+            for(let i=rows.length-1;i>=0;i--){
+                const c=rows[i].querySelector('.cs-item');
+                if(c) return (c.innerText||'').replace(/\s+/g,' ').trim();
+                const b=rows[i].querySelector('.buyer-item');
+                if(b) return '';
+            }
+            return '';
+        }"""
+    )
+
+
 async def _dismiss_chat_modals(page: Page) -> None:
     """隐藏遮挡输入框的各种弹窗/遮罩层（通知弹窗、引导层、Element 对话框）。
 
