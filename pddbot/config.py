@@ -20,6 +20,10 @@ def _app_root() -> Path:
 
 ROOT = _app_root()
 
+# 打包后：浏览器内核放在 exe 旁的 ms-playwright 目录（首次运行自动下载，用户无需单独安装）
+if getattr(sys, "frozen", False):
+    os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(ROOT / "ms-playwright"))
+
 # 优先加载 exe/项目旁边的 .env
 load_dotenv(ROOT / ".env")
 
