@@ -20,9 +20,22 @@ def _app_root() -> Path:
 
 ROOT = _app_root()
 
-# 打包后：浏览器内核放在 exe 旁的 ms-playwright 目录（首次运行自动下载，用户无需单独安装）
+# 打包后（frozen）的初始化：浏览器内核路径 + 把内置数据释放到 exe 旁
 if getattr(sys, "frozen", False):
+    # 浏览器内核放在 exe 旁的 ms-playwright 目录（首次运行自动下载，用户无需单独安装）
     os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(ROOT / "ms-playwright"))
+    # PyInstaller 把数据打进 _internal，这里首次运行时释放到 exe 旁，方便用户查看/编辑
+    import shutil
+
+    _bundle = Path(getattr(sys, "_MEIPASS", ROOT))
+    for _name in ("data/qa.yaml", "data/products.yaml", ".env.example"):
+        _src, _dst = _bundle / _name, ROOT / _name
+        if _src.exists() and not _dst.exists():
+            _dst.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.copy2(_src, _dst)
+            except Exception:
+                pass
 
 # 优先加载 exe/项目旁边的 .env
 load_dotenv(ROOT / ".env")
