@@ -5,6 +5,10 @@ on:
   push:
     tags: ["v*"] # 打 v 开头的 tag 时自动打包并发 Release
 
+# 发布 Release 需要写仓库内容的权限（默认 GITHUB_TOKEN 只读）
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
