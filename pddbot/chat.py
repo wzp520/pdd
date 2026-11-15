@@ -113,6 +113,27 @@ async def get_conversation_id(page: Page) -> str:
     )
 
 
+async def get_buyer_label(page: Page) -> str:
+    """当前会话买家的展示名：昵称 + 列表上的最后消息时间，例如「P*H（15:20）」。
+
+    拼多多列表里的昵称是打码的，不同买家可能重名，带上时间方便人工在会话列表里对上人。
+    """
+    try:
+        return await page.evaluate(
+            r"""() => {
+                const el = document.querySelector(
+                    '.chat-item-box.active, .chat-item-box[selecting="true"], .chat-item.active'
+                );
+                if (!el) return '';
+                const nick = (el.querySelector('.nickname-span')?.innerText || '').trim();
+                const t = (el.querySelector('.chat-time .item-note')?.innerText || '').trim();
+                return nick ? (t ? `${nick}（${t}）` : nick) : '';
+            }"""
+        )
+    except Exception:
+        return ""
+
+
 async def get_current_product(page: Page) -> str:
     """提取买家当前咨询的商品名（买家发的商品卡片 / 系统「来自商品详情页」）。"""
     return await page.evaluate(

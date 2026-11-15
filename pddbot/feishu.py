@@ -52,13 +52,39 @@ async def send_text(text: str) -> tuple[bool, str]:
         return False, str(e)
 
 
-async def notify_human(buyer_msg: str, product: str = "") -> None:
+def _buyer_line(buyer: str, conv_id: str = "") -> str:
+    """买家昵称为主，会话 ID 作备查。"""
+    if buyer and conv_id:
+        return f"买家：{buyer}（会话 {conv_id}）"
+    return f"买家：{buyer or '未知'}" if not conv_id else f"会话：{conv_id}"
+
+
+async def notify_human(buyer_msg: str, product: str = "", buyer: str = "", conv_id: str = "") -> None:
     """转人工时推送提醒到飞书群（未启用或未配置时静默跳过）。"""
     if not config.FEISHU_ENABLED or not config.FEISHU_WEBHOOK:
         return
-    lines = ["🔔 有客户需要人工处理", f"买家问题：{buyer_msg}"]
+    lines = ["🔔 有客户需要人工处理", _buyer_line(buyer, conv_id), f"买家问题：{buyer_msg}"]
     if product:
         lines.append(f"咨询商品：{product}")
+    at = _build_at()
+    if at:
+        lines.append(at)
+    await send_text("\n".join(lines))
+
+
+async def notify_bargain(
+    conv_id: str, product: str, offer: float, buyer_msg: str, buyer: str = ""
+) -> None:
+    """机器人答应让价后，推送飞书提醒人工改价/发券兑现（未启用时静默跳过）。"""
+    if not config.FEISHU_ENABLED or not config.FEISHU_WEBHOOK:
+        return
+    lines = [
+        f"💰 机器人已承诺让价 {offer:g} 元，请尽快改价/发券兑现",
+        _buyer_line(buyer, conv_id),
+        f"买家原话：{buyer_msg}",
+    ]
+    if product:
+        lines.append(f"商品：{product}")
     at = _build_at()
     if at:
         lines.append(at)

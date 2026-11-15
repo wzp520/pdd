@@ -13,3 +13,7 @@ build/
 .idea/
 # AI 运行时学到的问答（每个店铺各自积累，不纳入版本库）
 data/learned_qa.yaml
+# 利润测算保存的商品清单（每个店铺各自维护）
+data/profit.yaml
+# 议价状态：每个会话承诺的让价、当日记录
+data/bargain_state.json

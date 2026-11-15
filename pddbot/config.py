@@ -71,6 +71,30 @@ FEISHU_WEBHOOK = os.getenv("FEISHU_WEBHOOK", "")
 FEISHU_SECRET = os.getenv("FEISHU_SECRET", "")
 FEISHU_AT_USERS = [u.strip() for u in os.getenv("FEISHU_AT_USERS", "").split(",") if u.strip()]
 
+# ===== 自动议价（机器人在区间内让价，人工兑现改价/发券）=====
+def _bargain_from_env() -> None:
+    global BARGAIN_ENABLED, BARGAIN_MIN, BARGAIN_MAX, BARGAIN_STEP, BARGAIN_DAILY_BUDGET
+    global BARGAIN_UNKNOWN_PRODUCT, BARGAIN_AD_SHARE, BARGAIN_FULFILL_TEXT
+    BARGAIN_ENABLED = os.getenv("BARGAIN_ENABLED", "false").lower() in ("1", "true", "yes")
+    # 未在「利润测算」录入的商品用这个默认区间（元）
+    BARGAIN_MIN = float(os.getenv("BARGAIN_MIN", "0.5"))
+    BARGAIN_MAX = float(os.getenv("BARGAIN_MAX", "2"))
+    # 让价取整单位（元）
+    BARGAIN_STEP = float(os.getenv("BARGAIN_STEP", "0.5"))
+    # 每天最多让出的总金额（元），超出后砍价一律转人工
+    BARGAIN_DAILY_BUDGET = float(os.getenv("BARGAIN_DAILY_BUDGET", "50"))
+    # 未录入利润测算的商品：default=用默认区间，human=不让价转人工
+    BARGAIN_UNKNOWN_PRODUCT = os.getenv("BARGAIN_UNKNOWN_PRODUCT", "default")
+    # 推广费占售价比例（%），计算商品最大可让价时预留；商品填了实际 ROI 则按 ROI 算
+    BARGAIN_AD_SHARE = float(os.getenv("BARGAIN_AD_SHARE", "0"))
+    # 答应让价后告诉买家怎么拿到优惠（人工随后改价/发券）
+    BARGAIN_FULFILL_TEXT = os.getenv(
+        "BARGAIN_FULFILL_TEXT", "您先拍下先别付款，客服马上给您改价哦～"
+    )
+
+
+_bargain_from_env()
+
 
 def _reload() -> None:
     """从当前环境变量刷新模块级配置。"""
@@ -90,6 +114,7 @@ def _reload() -> None:
     FEISHU_WEBHOOK = os.getenv("FEISHU_WEBHOOK", "")
     FEISHU_SECRET = os.getenv("FEISHU_SECRET", "")
     FEISHU_AT_USERS = [u.strip() for u in os.getenv("FEISHU_AT_USERS", "").split(",") if u.strip()]
+    _bargain_from_env()
 
 
 def update_env(updates: dict) -> None:

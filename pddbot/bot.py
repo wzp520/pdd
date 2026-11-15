@@ -11,7 +11,7 @@ import time
 
 from playwright.async_api import async_playwright
 
-from . import chat, config, decide, feishu, learn
+from . import bargain, chat, config, decide, feishu, learn
 
 
 class Bot:
@@ -50,6 +50,16 @@ class Bot:
     def stop(self) -> None:
         self._running = False
 
+    def human_paused_count(self) -> int:
+        """当前处于转人工暂停中的会话数。"""
+        return len(self._human_handled)
+
+    def resume_all(self) -> int:
+        """立即结束所有会话的转人工暂停，下一轮轮询起由 AI 接管。返回恢复的会话数。"""
+        n = len(self._human_handled)
+        self._human_handled.clear()
+        return n
+
     async def _learn_async(self, q: str, reply: str, log) -> None:
         """异步学习人工回复，不阻塞轮询。"""
         try:
@@ -74,6 +84,7 @@ class Bot:
                     continue
 
                 conv_id = await chat.get_conversation_id(page)
+                buyer = ""  # 买家昵称，仅在要通知人工时才读取
                 msg = await chat.get_pending_buyer_message(page)
 
                 if conv_id and conv_id in self._human_handled:
@@ -88,8 +99,16 @@ class Bot:
                         rec["ts"] = time.time()
                         continue
                     # 买家有新消息在等：距人工最近一次回复超过阈值，AI 才恢复接管
-                    if time.time() - rec["ts"] < config.HUMAN_PAUSE_MINUTES * 60:
-                        continue  # 仍给人工响应时间
+                    left = config.HUMAN_PAUSE_MINUTES * 60 - (time.time() - rec["ts"])
+                    if left > 0:
+                        # 仍给人工响应时间；同一条买家消息只提示一次，免得刷屏
+                        if rec.get("waiting_msg") != msg["text"]:
+                            rec["waiting_msg"] = msg["text"]
+                            log(
+                                f"[会话{i}] 买家：{msg['text']!r} → 该会话已转人工，等待人工处理"
+                                f"（约 {left / 60:.0f} 分钟后人工仍未回复则 AI 接管）"
+                            )
+                        continue
                     del self._human_handled[conv_id]  # 人工久未回复，AI 恢复接管
 
                 if not msg:
@@ -101,6 +120,7 @@ class Bot:
                     continue  # 本次运行已回复过，避免重复
 
                 product = ""
+                deal = None
                 if msg["kind"] == "image":
                     action, reply = "auto", "亲，图片收到啦～请问有什么可以帮您的呢？"
                 elif msg["kind"] == "card":
@@ -110,13 +130,35 @@ class Bot:
                     )
                 else:  # 普通文字，带上商品上下文交给决策层
                     product = await chat.get_current_product(page)
-                    action, reply = await decide.decide(text, product=product)
+                    deal = None
+                    if (
+                        config.BARGAIN_ENABLED
+                        and not decide.need_human(text)
+                        and bargain.is_bargain(text)
+                    ):
+                        buyer = await chat.get_buyer_label(page)
+                        deal = bargain.handle(conv_id, text, product, save=not config.DRY_RUN, buyer=buyer)
+                        log(f"[议价] {deal.reason}")
+                    if deal and deal.action == "auto":
+                        action, reply = "auto", deal.reply
+                    elif deal:
+                        action, reply = "human", decide.HUMAN_HANDOFF_REPLY
+                    else:
+                        action, reply = await decide.decide(text, product=product, log=log)
 
                 self.stats[action] = self.stats.get(action, 0) + 1
-                log(f"[会话{i}] 买家({msg['kind']})：{text!r} → [{action}] {reply!r}")
+                dry = "（干跑，未发送）" if config.DRY_RUN else ""
+                log(f"[会话{i}] 买家({msg['kind']})：{text!r} → [{action}] {reply!r}{dry}")
 
                 if action == "auto":
                     await chat.send_reply(page, reply)
+                    if deal and deal.new_promise and not config.DRY_RUN:
+                        # 机器人只负责谈，答应的优惠由人工改价/发券兑现
+                        log(f"💰 [会话{i} {buyer}] 已承诺让价 {deal.offer:g} 元，请人工改价/发券")
+                        try:
+                            await feishu.notify_bargain(conv_id, product, deal.offer, text, buyer=buyer)
+                        except Exception as fe:
+                            log(f"[飞书通知失败] {fe}")
                     # 发送后随机停顿，模拟人工节奏，避免触发"操作太快"风控
                     await asyncio.sleep(random.uniform(1.5, 4.0))
                 elif action == "human":
@@ -127,7 +169,8 @@ class Bot:
                     await chat.send_reply(page, reply)  # 先告知买家正在转人工
                     await asyncio.sleep(random.uniform(1.5, 4.0))
                     try:
-                        await feishu.notify_human(text, product)
+                        buyer = buyer or await chat.get_buyer_label(page)
+                        await feishu.notify_human(text, product, buyer=buyer, conv_id=conv_id)
                     except Exception as fe:
                         log(f"[飞书通知失败] {fe}")
 

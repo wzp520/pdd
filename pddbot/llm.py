@@ -28,13 +28,30 @@ def reset_client() -> None:
     _client = None
 
 
+def check_api_key(key: str) -> str | None:
+    """校验 API Key 格式，有问题返回中文原因，没问题返回 None。
+
+    HTTP 请求头只能是 ASCII：Key 里混入中文（如没替换模板里的「sk-你的key」）、
+    全角字符或空格，会在发请求时报 'ascii' codec can't encode。
+    """
+    key = (key or "").strip()
+    if not key:
+        return "未配置 API Key，请在「模型配置」页填写"
+    if not key.isascii():
+        return "API Key 含中文或全角字符（可能还是模板里的「sk-你的key」），请填入真实 Key"
+    if any(c.isspace() for c in key):
+        return "API Key 中间含空格，请检查是否复制完整"
+    return None
+
+
 def _get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        if not config.DEEPSEEK_API_KEY:
-            raise RuntimeError("未配置 DEEPSEEK_API_KEY，请在 .env 里填写")
+        err = check_api_key(config.DEEPSEEK_API_KEY)
+        if err:
+            raise RuntimeError(err)
         _client = AsyncOpenAI(
-            api_key=config.DEEPSEEK_API_KEY,
+            api_key=config.DEEPSEEK_API_KEY.strip(),
             base_url=config.DEEPSEEK_BASE_URL,
             timeout=30,
         )

@@ -22,6 +22,9 @@ HUMAN_KEYWORDS = [
 ]
 
 # 大模型回复里出现这些词，说明它自己判断需要转人工 → 升级为 human 以触发飞书通知
+# 转人工时发给买家的固定话术（不管什么原因转人工，买家只看到这句）
+HUMAN_HANDOFF_REPLY = "这边帮您转接人工客服为您处理哦～"
+
 HUMAN_REPLY_HINTS = ["转接人工", "人工客服", "转人工", "人工为您", "人工处理", "人工帮您"]
 
 
@@ -119,11 +122,14 @@ def product_context(product_name: str = "") -> str:
 
 
 async def decide(
-    buyer_msg: str, product: str = "", history: list | None = None
+    buyer_msg: str, product: str = "", history: list | None = None, log=None
 ) -> tuple[str, str]:
-    """返回 (action, reply)。action ∈ {"auto", "human"}。product=买家咨询的商品名。"""
+    """返回 (action, reply)。action ∈ {"auto", "human"}。product=买家咨询的商品名。
+
+    log: 可选日志回调，大模型出错时把原因写进运行日志（错误详情只给商家看，不发给买家）。
+    """
     if need_human(buyer_msg):
-        return "human", "这边帮您转接人工客服为您处理哦～"
+        return "human", HUMAN_HANDOFF_REPLY
 
     qa = match_qa(buyer_msg)
     if qa:
@@ -133,10 +139,14 @@ async def decide(
         reply = await llm.generate_reply(
             buyer_msg, product_context=product_context(product), history=history
         )
+        if not reply:  # 大模型返回空内容，不发空消息，转人工
+            return "human", HUMAN_HANDOFF_REPLY
         # 大模型若在回复里表达了转人工意图，升级为 human，以触发飞书通知
         if any(k in reply for k in HUMAN_REPLY_HINTS):
             return "human", reply
         return "auto", reply
     except Exception as e:
-        # 大模型不可用时兜底转人工，绝不乱答
-        return "human", f"[转人工] 自动回复暂不可用（{e}）"
+        # 大模型不可用时兜底转人工，绝不乱答；报错细节只进日志，买家只看到正常转人工话术
+        if log:
+            log(f"⚠️ 大模型调用失败，已转人工：{type(e).__name__}: {e}")
+        return "human", HUMAN_HANDOFF_REPLY
