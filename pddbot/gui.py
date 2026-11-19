@@ -14,11 +14,13 @@ from pathlib import Path
 
 from nicegui import ui
 
-from . import bargain, config, dashboard, decide, feishu, learn, llm, login, profit, quicklinks
+from . import bargain, config, dashboard, decide, feishu, learn, llm, login, monitor, profit, quicklinks
 from .bot import Bot
 
 bot = Bot()
 _task: asyncio.Task | None = None
+mon = monitor.Monitor()
+_mon_task: asyncio.Task | None = None
 _logs: deque[str] = deque(maxlen=500)
 
 # 模型供应商预设（选中自动填 base_url 和默认模型）
@@ -102,6 +104,7 @@ def main_page():
     with ui.tabs().classes("w-full") as tabs:
         tab_console = ui.tab("控制台", icon="dashboard")
         tab_dash = ui.tab("数据概览", icon="insights")
+        tab_monitor = ui.tab("链接监控", icon="monitor_heart")
         tab_links = ui.tab("快捷入口", icon="open_in_new")
         tab_profit = ui.tab("利润测算", icon="calculate")
         tab_bargain = ui.tab("自动议价", icon="sell")
@@ -216,6 +219,10 @@ def main_page():
                         val = bottom.get(key, 0)
                     dash_cards[key].set_text(str(val))
                 dash_time.set_text(f"更新于 {datetime.now():%H:%M:%S}")
+
+        # ===== 链接监控 =====
+        with ui.tab_panel(tab_monitor):
+            _monitor_panel()
 
         # ===== 快捷入口 =====
         with ui.tab_panel(tab_links):
@@ -646,6 +653,158 @@ def _profit_panel() -> None:
 
     render_saved()
     recalc()
+
+
+def _monitor_running() -> bool:
+    return _mon_task is not None and not _mon_task.done()
+
+
+def _monitor_panel() -> None:
+    """链接监控页：定时抓全店商品数据，和近几天同时段对比，异常才推飞书。"""
+    ui.label("每隔一段时间自动看一遍全店商品数据，链接异常（访客骤降/归零、转化暴跌、状态变化）才推送飞书。").classes(
+        "text-sm text-gray-500"
+    )
+    ui.label(
+        "单品对比近 7 天同一时刻的中位数；历史不足 2 天时，用昨日全天数据按整店节奏估算昨日同时段。整店访客对比昨日同时段。"
+    ).classes("text-xs text-gray-400")
+
+    with ui.row().classes("items-center gap-3"):
+        state = ui.label().classes("font-bold")
+
+        async def start():
+            global _mon_task
+            if _monitor_running():
+                return
+            if not config.STATE_FILE.exists():
+                ui.notify("还没有登录态，请先到控制台扫码登录", type="warning")
+                return
+            _mon_task = asyncio.create_task(mon.run(on_log=add_log))
+
+        def stop():
+            if _monitor_running():
+                mon.stop()
+
+        checking = {"on": False}
+
+        async def check_now():
+            if checking["on"]:
+                return
+            checking["on"] = True
+            check_btn.props("loading")
+            try:
+                mon.last = await monitor.check_once(on_log=add_log)
+                ui.notify(mon.last.msg, type="positive" if mon.last.ok else "negative")
+            finally:
+                checking["on"] = False
+                check_btn.props(remove="loading")
+            render_goods()
+            render_alerts()
+
+        ui.button("开始监控", icon="play_arrow", color="positive", on_click=start)
+        ui.button("停止", icon="stop", color="negative", on_click=stop)
+        check_btn = ui.button("立即检查一次", icon="refresh", on_click=check_now).props("outline")
+
+    def refresh_state():
+        if _monitor_running():
+            nxt = f"，下次 {mon.next_at:%H:%M}" if mon.next_at else "（检查中…）"
+            state.set_text(f"🟢 监控中{nxt}")
+        else:
+            state.set_text("⚪ 未开启")
+
+    ui.timer(2.0, refresh_state)
+
+    with ui.expansion("监控设置", icon="tune").classes("w-full max-w-xl"):
+        with ui.row().classes("gap-3 w-full"):
+            m_int = ui.number("检查间隔(分钟)", value=config.MONITOR_INTERVAL, min=20, format="%.0f").classes("flex-1")
+            m_start = ui.number("每天开始(点)", value=config.MONITOR_START_HOUR, min=0, max=23, format="%.0f").classes("flex-1")
+            m_end = ui.number("每天结束(点)", value=config.MONITOR_END_HOUR, min=1, max=24, format="%.0f").classes("flex-1")
+        with ui.row().classes("gap-3 w-full"):
+            m_drop = ui.number("访客比平时低(%)算骤降", value=config.MONITOR_DROP_PCT, min=10, max=95, format="%.0f").classes("flex-1")
+            m_min = ui.number("平时访客少于几个不判", value=config.MONITOR_MIN_UV, min=1, format="%.0f").classes("flex-1")
+        with ui.row().classes("gap-3 w-full"):
+            m_cvr = ui.number("转化率比平时低(%)算暴跌", value=config.MONITOR_CVR_DROP_PCT, min=10, max=95, format="%.0f").classes("flex-1")
+            m_conf = ui.number("连续几次异常才推送", value=config.MONITOR_CONFIRM, min=1, max=5, format="%.0f").classes("flex-1")
+            m_cool = ui.number("同一异常几小时内不重复推", value=config.MONITOR_COOLDOWN_H, min=1, format="%.0f").classes("flex-1")
+
+        def save_monitor():
+            if int(m_start.value or 0) >= int(m_end.value or 24):
+                ui.notify("开始时间要早于结束时间", type="negative")
+                return
+            config.update_env({
+                "MONITOR_INTERVAL": float(m_int.value or 60),
+                "MONITOR_START_HOUR": int(m_start.value or 0),
+                "MONITOR_END_HOUR": int(m_end.value or 24),
+                "MONITOR_DROP_PCT": float(m_drop.value or 50),
+                "MONITOR_MIN_UV": int(m_min.value or 30),
+                "MONITOR_CVR_DROP_PCT": float(m_cvr.value or 60),
+                "MONITOR_CONFIRM": int(m_conf.value or 2),
+                "MONITOR_COOLDOWN_H": float(m_cool.value or 6),
+            })
+            ui.notify("监控设置已保存（间隔从下一轮起生效）✅", type="positive")
+
+        ui.button("保存", on_click=save_monitor, icon="save", color="positive")
+        ui.label("异常推送走「飞书通知」页配置的群机器人；没启用飞书时只在这里和日志里显示。").classes(
+            "text-xs text-gray-400"
+        )
+
+    ui.label("最近一次检查").classes("font-bold mt-4")
+    goods_box = ui.column().classes("w-full gap-1")
+
+    def render_goods():
+        goods_box.clear()
+        r = mon.last
+        with goods_box:
+            if not r:
+                ui.label("还没检查过。点「立即检查一次」或「开始监控」。").classes("text-gray-400 q-pa-sm")
+                return
+            ui.label(f"{r.ts:%m-%d %H:%M} · {r.msg}").classes(
+                "text-sm " + ("text-gray-600" if r.ok else "text-red-600")
+            )
+            if not r.goods:
+                return
+            src = next((g["base_src"] for g in r.goods if g.get("base_src")), None)
+            ui.label(f"「平时」取的是：{src}" if src else "「平时」暂无数据：昨日数据没取到，攒够 2 天后会改用近 7 天同时段中位数").classes(
+                "text-xs text-gray-400"
+            )
+            with ui.row().classes("w-full font-bold text-gray-600 gap-2"):
+                for t, w in [("商品", "flex-1"), ("今日访客", "w-20"), ("平时同时段", "w-24"),
+                             ("转化率", "w-20"), ("平时转化", "w-20"), ("成交额", "w-24")]:
+                    ui.label(t).classes(w)
+            bad = {a.goods_id for a in r.alerts}
+            for g in r.goods:
+                base = g["base_uv"]
+                low = base is not None and base > 0 and g["uv"] < base * (1 - config.MONITOR_DROP_PCT / 100)
+                with ui.row().classes("w-full gap-2 border-b" + (" bg-red-50" if g["goods_id"] in bad else "")):
+                    ui.label(g["name"]).classes("flex-1 truncate").tooltip(f"ID {g['goods_id']}")
+                    ui.label(str(g["uv"])).classes("w-20" + (" text-red-600 font-bold" if low else ""))
+                    est = (g.get("base_src") or "").startswith("昨日")
+                    ui.label("无数据" if base is None else (f"≈{base:g}" if est else f"{base:g}")).classes(
+                        "w-24 text-gray-500"
+                    )
+                    ui.label("-" if g["vcr"] is None else f"{g['vcr']:.2%}").classes("w-20")
+                    ui.label("-" if g["base_vcr"] is None else f"{g['base_vcr']:.2%}").classes("w-20 text-gray-500")
+                    ui.label(f"¥{g['pay_amt']:.2f}").classes("w-24")
+
+    with ui.row().classes("items-center gap-2 mt-4"):
+        ui.label("异常推送记录").classes("font-bold")
+        ui.button(icon="refresh", on_click=lambda: render_alerts()).props("flat dense").tooltip("刷新")
+    alerts_box = ui.column().classes("w-full gap-1")
+
+    def render_alerts():
+        alerts_box.clear()
+        rows = monitor.recent_alerts()
+        with alerts_box:
+            if not rows:
+                ui.label("暂无异常。").classes("text-gray-400 q-pa-sm")
+                return
+            for a in rows:
+                with ui.row().classes("w-full gap-2 border-b items-start"):
+                    ui.label(a["ts"].replace("T", " ")[5:16]).classes("w-28 text-gray-500")
+                    ui.label(a["kind"]).classes("w-24 font-bold text-orange-600")
+                    ui.label(a["msg"]).classes("flex-1 whitespace-pre-line text-sm")
+
+    render_goods()
+    render_alerts()
 
 
 def _bargain_panel() -> None:

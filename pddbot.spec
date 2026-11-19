@@ -11,7 +11,7 @@ binaries = []
 hiddenimports = ["pddbot"]
 
 # nicegui 有大量静态资源，playwright 带 driver，都要整包收集
-for pkg in ("nicegui", "playwright", "openai", "openpyxl"):
+for pkg in ("nicegui", "playwright", "openai", "openpyxl", "fontTools"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b

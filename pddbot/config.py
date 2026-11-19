@@ -96,6 +96,23 @@ def _bargain_from_env() -> None:
 _bargain_from_env()
 
 
+# ===== 链接监控（定时抓商品数据，异常才推飞书）=====
+def _monitor_from_env() -> None:
+    global MONITOR_INTERVAL, MONITOR_DROP_PCT, MONITOR_MIN_UV, MONITOR_CVR_DROP_PCT
+    global MONITOR_CONFIRM, MONITOR_COOLDOWN_H, MONITOR_START_HOUR, MONITOR_END_HOUR
+    MONITOR_INTERVAL = float(os.getenv("MONITOR_INTERVAL", "60"))        # 检查间隔（分钟）
+    MONITOR_DROP_PCT = float(os.getenv("MONITOR_DROP_PCT", "50"))        # 访客比平时低多少 % 算骤降
+    MONITOR_MIN_UV = int(float(os.getenv("MONITOR_MIN_UV", "30")))       # 平时访客低于这个数的不判
+    MONITOR_CVR_DROP_PCT = float(os.getenv("MONITOR_CVR_DROP_PCT", "60"))  # 转化率比平时低多少 % 算暴跌
+    MONITOR_CONFIRM = int(float(os.getenv("MONITOR_CONFIRM", "2")))      # 连续几次异常才推送
+    MONITOR_COOLDOWN_H = float(os.getenv("MONITOR_COOLDOWN_H", "6"))     # 同一异常几小时内不重复推
+    MONITOR_START_HOUR = int(float(os.getenv("MONITOR_START_HOUR", "8")))  # 每天几点开始检查
+    MONITOR_END_HOUR = int(float(os.getenv("MONITOR_END_HOUR", "23")))     # 每天几点停止检查
+
+
+_monitor_from_env()
+
+
 def _reload() -> None:
     """从当前环境变量刷新模块级配置。"""
     global DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
@@ -115,6 +132,7 @@ def _reload() -> None:
     FEISHU_SECRET = os.getenv("FEISHU_SECRET", "")
     FEISHU_AT_USERS = [u.strip() for u in os.getenv("FEISHU_AT_USERS", "").split(",") if u.strip()]
     _bargain_from_env()
+    _monitor_from_env()
 
 
 def update_env(updates: dict) -> None:

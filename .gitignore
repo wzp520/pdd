@@ -17,3 +17,5 @@ data/learned_qa.yaml
 data/profit.yaml
 # 议价状态：每个会话承诺的让价、当日记录
 data/bargain_state.json
+# 链接监控历史数据与异常记录（每个店铺各自积累）
+data/monitor.db
